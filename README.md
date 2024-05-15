@@ -11,4 +11,5 @@ Linear 2D/3D image interpolation and gridding in PyTorch.
 ## Why?
 
 This package provides a simple, consistent API for sampling or inserting values into 
-2D or 3D imaging data in PyTorch.
+2D or 3D imaging data in PyTorch. 
+
