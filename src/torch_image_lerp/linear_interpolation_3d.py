@@ -28,6 +28,7 @@ def sample_image_3d(
         `(..., )` array of samples from `image`.
     """
     complex_input = torch.is_complex(image)
+
     # setup for sampling with torch.nn.functional.grid_sample
     coordinates, ps = einops.pack([coordinates], pattern='* zyx')
     n_samples = coordinates.shape[0]
@@ -52,11 +53,12 @@ def sample_image_3d(
         padding_mode='border',  # this increases sampling fidelity at edges
         align_corners=True,
     )
+
     if complex_input is True:
         samples = einops.rearrange(samples, 'b complex 1 1 1 -> b complex')
         samples = torch.view_as_complex(samples.contiguous())  # (b, )
     else:
-        samples = einops.rearrange(samples, 'b c 1 1 1 -> b c')
+        samples = einops.rearrange(samples, 'b 1 1 1 1 -> b')
 
     # set samples from outside of volume to zero
     coordinates = einops.rearrange(coordinates, 'b 1 1 1 zyx -> b zyx')
