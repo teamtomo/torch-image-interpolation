@@ -14,7 +14,7 @@ This package provides a simple, consistent API for
 - sampling from 2D/3D images (`sample_image_2d()`/`sample_image_3d()`)
 - inserting values into 2D/3D images (`insert_into_image_2d()`, `insert_into_image_3d`)
 
-Operations are differentiable.
+Operations are differentiable and sampling from complex valued images is supported.
 
 # Installation
 
