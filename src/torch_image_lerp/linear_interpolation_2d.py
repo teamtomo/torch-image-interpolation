@@ -30,6 +30,7 @@ def sample_image_2d(
     # setup for sampling with torch.nn.functional.grid_sample
     coordinates, ps = einops.pack([coordinates], pattern='* yx')
     n_samples = coordinates.shape[0]
+    h, w = image.shape[-2:]
 
     image = einops.repeat(image, 'h w -> b 1 h w', b=n_samples)  # b c h w
     coordinates = einops.rearrange(coordinates, 'b yx -> b 1 1 yx')  # b h w zyx
@@ -37,7 +38,7 @@ def sample_image_2d(
     # take the samples
     samples = F.grid_sample(
         input=image,
-        grid=array_to_grid_sample(coordinates, array_shape=image.shape[-2:]),
+        grid=array_to_grid_sample(coordinates, array_shape=(h, w)),
         mode='bilinear',
         padding_mode='border',  # this increases sampling fidelity at edges
         align_corners=True,
@@ -46,7 +47,7 @@ def sample_image_2d(
 
     # set samples from outside of image to zero
     coordinates = einops.rearrange(coordinates, 'b 1 1 yx -> b yx')
-    image_shape = torch.as_tensor(image.shape)
+    image_shape = torch.as_tensor((h, w), device=image.device)
     inside = torch.logical_and(coordinates >= 0, coordinates <= image_shape - 1)
     inside = torch.all(inside, dim=-1)  # (b, d, h, w)
     samples[~inside] *= 0
@@ -60,7 +61,7 @@ def insert_into_image_2d(
     data: torch.Tensor,
     coordinates: torch.Tensor,
     image: torch.Tensor,
-    weights: torch.Tensor,
+    weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Insert values into a 2D image with bilinear interpolation.
 
@@ -74,7 +75,7 @@ def insert_into_image_2d(
         - Coordinates span the range `[0, N-1]` for a dimension of length N.
     image: torch.Tensor
         `(h, w)` array containing the image into which data will be inserted.
-    weights: torch.Tensor
+    weights: torch.Tensor | None
         `(h, w)` array containing weights associated with each pixel in `image`.
         This is useful for tracking weights across multiple calls to this function.
 
@@ -85,6 +86,10 @@ def insert_into_image_2d(
     """
     if data.shape != coordinates.shape[:-1]:
         raise ValueError('One coordinate pair is required for each value in data.')
+    if coordinates.shape[-1] != 2:
+        raise ValueError('Coordinates must be of shape (..., 2).')
+    if weights is None:
+        weights = torch.zeros_like(image)
 
     # linearise data and coordinates
     data, _ = einops.pack([data], pattern='*')
@@ -97,12 +102,12 @@ def insert_into_image_2d(
     data, coordinates = data[in_image_idx], coordinates[in_image_idx]
 
     # calculate and cache floor and ceil of coordinates for each value to be inserted
-    corner_coordinates = torch.empty(size=(data.shape[0], 2, 2), dtype=torch.long)
+    corner_coordinates = torch.empty(size=(data.shape[0], 2, 2), dtype=torch.long, device=image.device)
     corner_coordinates[:, 0] = torch.floor(coordinates)
     corner_coordinates[:, 1] = torch.ceil(coordinates)
 
     # calculate linear interpolation weights for each data point being inserted
-    _weights = torch.empty(size=(data.shape[0], 2, 2))  # (b, 2, yx)
+    _weights = torch.empty(size=(data.shape[0], 2, 2), device=image.device)  # (b, 2, yx)
     _weights[:, 1] = coordinates - corner_coordinates[:, 0]  # upper corner weights
     _weights[:, 0] = 1 - _weights[:, 1]  # lower corner weights
 

@@ -74,7 +74,7 @@ def insert_into_image_3d(
     data: torch.Tensor,
     coordinates: torch.Tensor,
     image: torch.Tensor,
-    weights: torch.Tensor,
+    weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Insert values into a 3D image with trilinear interpolation.
 
@@ -88,7 +88,7 @@ def insert_into_image_3d(
         - Coordinates span the range `[0, N-1]` for a dimension of length N.
     image: torch.Tensor
         `(d, h, w)` array into which data will be inserted.
-    weights: torch.Tensor
+    weights: torch.Tensor | None
         `(d, h, w)` array containing weights associated with each pixel in `image`.
         This is useful for tracking weights across multiple calls to this function.
 
@@ -99,6 +99,10 @@ def insert_into_image_3d(
     """
     if data.shape != coordinates.shape[:-1]:
         raise ValueError('One coordinate triplet is required for each value in data.')
+    if coordinates.shape[-1] != 3:
+        raise ValueError('Coordinates must be of shape (..., 3).')
+    if weights is None:
+        weights = torch.zeros_like(image)
 
     # linearise data and coordinates
     data, _ = einops.pack([data], pattern='*')
@@ -116,7 +120,7 @@ def insert_into_image_3d(
     _c[:, 1] = torch.ceil(coordinates)  # for upper corners
 
     # calculate linear interpolation weights for each data point being inserted
-    _w = torch.empty(size=(data.shape[0], 2, 3), dtype=torch.float64, device=image.device)  # (b, 2, zyx)
+    _w = torch.empty(size=(data.shape[0], 2, 3), dtype=image.dtype, device=image.device)  # (b, 2, zyx)
     _w[:, 1] = coordinates - _c[:, 0]  # upper corner weights
     _w[:, 0] = 1 - _w[:, 1]  # lower corner weights
 
