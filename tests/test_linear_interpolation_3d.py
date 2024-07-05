@@ -17,6 +17,18 @@ def test_sample_image_3d():
     assert samples.shape == (6, 7, 8)
 
 
+def test_sample_image_3d_complex_input():
+    # basic sanity check only
+    image = torch.complex(real=torch.rand((28, 28, 28)), imag=torch.rand(28, 28, 28))
+
+    # make an arbitrary stack (..., 3) of 3d coords
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(6, 7, 8, 3)))
+
+    # sample
+    samples = sample_image_3d(image=image, coordinates=coords)
+    assert samples.shape == (6, 7, 8)
+
+
 def test_insert_into_image_3d():
     image = torch.zeros((28, 28, 28)).float()
 
