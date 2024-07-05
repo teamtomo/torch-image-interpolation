@@ -27,9 +27,11 @@ def sample_image_2d(
     samples: torch.Tensor
         `(..., )` array of samples from `image`.
     """
-    complex_input = torch.is_complex(image)
+    if len(image.shape) != 2:
+        raise ValueError(f'image should have shape (h, w), got {image.shape}')
 
     # setup for sampling with torch.nn.functional.grid_sample
+    complex_input = torch.is_complex(image)
     coordinates, ps = einops.pack([coordinates], pattern='* yx')
     n_samples = coordinates.shape[0]
     h, w = image.shape[-2:]
