@@ -27,13 +27,24 @@ def sample_image_2d(
     samples: torch.Tensor
         `(..., )` array of samples from `image`.
     """
+    complex_input = torch.is_complex(image)
+
     # setup for sampling with torch.nn.functional.grid_sample
     coordinates, ps = einops.pack([coordinates], pattern='* yx')
     n_samples = coordinates.shape[0]
     h, w = image.shape[-2:]
 
-    image = einops.repeat(image, 'h w -> b 1 h w', b=n_samples)  # b c h w
-    coordinates = einops.rearrange(coordinates, 'b yx -> b 1 1 yx')  # b h w zyx
+    if complex_input is True:
+        # cannot sample complex tensors directly with grid_sample
+        # c.f. https://github.com/pytorch/pytorch/issues/67634
+        # workaround: treat real and imaginary parts as separate channels
+        image = torch.view_as_real(image)
+        image = einops.rearrange(image, 'h w complex -> complex h w')
+        image = einops.repeat(image, 'complex h w -> b complex h w', b=n_samples)
+        coordinates = einops.rearrange(coordinates, 'b zyx -> b 1 1 zyx')  # b h w zyx
+    else:
+        image = einops.repeat(image, 'h w -> b 1 h w', b=n_samples)  # b c h w
+        coordinates = einops.rearrange(coordinates, 'b zyx -> b 1 1 zyx')  # b h w zyx
 
     # take the samples
     samples = F.grid_sample(
@@ -43,7 +54,11 @@ def sample_image_2d(
         padding_mode='border',  # this increases sampling fidelity at edges
         align_corners=True,
     )
-    samples = einops.rearrange(samples, 'b 1 1 1 -> b')
+    if complex_input is True:
+        samples = einops.rearrange(samples, 'b complex 1 1 -> b complex')
+        samples = torch.view_as_complex(samples.contiguous())  # (b, )
+    else:
+        samples = einops.rearrange(samples, 'b 1 1 1 -> b')
 
     # set samples from outside of image to zero
     coordinates = einops.rearrange(coordinates, 'b 1 1 yx -> b yx')
