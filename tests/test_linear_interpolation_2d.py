@@ -17,6 +17,18 @@ def test_sample_image_2d():
     assert samples.shape == (6, 7, 8)
 
 
+def test_sample_image_2d_complex_input():
+    # basic sanity check only
+    image = torch.complex(real=torch.rand((28, 28)), imag=torch.rand(28, 28))
+
+    # make an arbitrary stack (..., 2) of 2d coords
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(6, 7, 8, 2)))
+
+    # sample
+    samples = sample_image_2d(image=image, coordinates=coords)
+    assert samples.shape == (6, 7, 8)
+
+
 def test_insert_into_image_2d():
     image = torch.zeros((28, 28)).float()
 
