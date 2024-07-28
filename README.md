@@ -34,7 +34,7 @@ from torch_image_lerp import sample_image_2d
 image = torch.rand((28, 28))
 
 # make an arbitrary stack (..., 2) of 2d coords
-coords = torch.tensor(np.random.uniform(low=0, high=27, size=(6, 7, 8, 2)))
+coords = torch.tensor(np.random.uniform(low=0, high=27, size=(6, 7, 8, 2))).float()
 
 # sampling returns a (6, 7, 8) array of samples obtained by linear interpolation
 samples = sample_image_2d(image=image, coordinates=coords)
