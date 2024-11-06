@@ -114,7 +114,9 @@ def insert_into_image_3d(
     coordinates = coordinates.float()
 
     # only keep data and coordinates inside the volume
-    inside = (coordinates >= 0) & (coordinates <= torch.tensor(image.shape) - 1)
+    inside = (coordinates >= 0) & (
+            coordinates <= torch.tensor(image.shape, device=image.device) - 1
+    )
     inside = torch.all(inside, dim=-1)
     data, coordinates = data[inside], coordinates[inside]
 
