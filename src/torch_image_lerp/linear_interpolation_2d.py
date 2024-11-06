@@ -114,7 +114,9 @@ def insert_into_image_2d(
     coordinates = coordinates.float()
 
     # only keep data and coordinates inside the image
-    in_image_idx = (coordinates >= 0) & (coordinates <= torch.tensor(image.shape) - 1)
+    in_image_idx = (coordinates >= 0) & (
+            coordinates <= torch.tensor(image.shape, device=image.device) - 1
+    )
     in_image_idx = torch.all(in_image_idx, dim=-1)
     data, coordinates = data[in_image_idx], coordinates[in_image_idx]
 
