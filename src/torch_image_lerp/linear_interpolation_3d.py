@@ -124,7 +124,8 @@ def insert_into_image_3d(
     _c[:, 1] = torch.ceil(coordinates)  # for upper corners
 
     # calculate linear interpolation weights for each data point being inserted
-    _w = torch.empty(size=(data.shape[0], 2, 3), dtype=torch.float64, device=image.device)  # (b, 2, zyx)
+    w_dtype = torch.float64 if image.is_complex() else image.dtype
+    _w = torch.empty(size=(data.shape[0], 2, 3), dtype=w_dtype, device=image.device)  # (b, 2, zyx)
     _w[:, 1] = coordinates - _c[:, 0]  # upper corner weights
     _w[:, 0] = 1 - _w[:, 1]  # lower corner weights
 
