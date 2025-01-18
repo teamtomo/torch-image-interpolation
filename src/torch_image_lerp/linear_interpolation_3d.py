@@ -27,6 +27,8 @@ def sample_image_3d(
     samples: torch.Tensor
         `(..., )` array of samples from `image`.
     """
+    device = coordinates.device
+
     if len(image.shape) != 3:
         raise ValueError(f'image should have shape (d, h, w), got {image.shape}')
 
@@ -64,7 +66,8 @@ def sample_image_3d(
 
     # set samples from outside of volume to zero
     coordinates = einops.rearrange(coordinates, 'b 1 1 1 zyx -> b zyx')
-    volume_shape = torch.as_tensor(image.shape[-3:])
+    volume_shape = torch.as_tensor(image.shape[-3:]).to(device)
+
     inside = torch.logical_and(coordinates >= 0, coordinates <= volume_shape - 1)
     inside = torch.all(inside, dim=-1)  # (b, d, h, w)
     samples[~inside] *= 0
