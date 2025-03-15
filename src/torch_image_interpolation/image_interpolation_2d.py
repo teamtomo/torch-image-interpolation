@@ -84,17 +84,17 @@ def sample_image_2d(
 
 
 def insert_into_image_2d(
-    data: torch.Tensor,
+    values: torch.Tensor,
     coordinates: torch.Tensor,
     image: torch.Tensor,
     weights: torch.Tensor | None = None,
-    mode: Literal['bilinear'] = 'bilinear',
+    mode: Literal['nearest', 'bilinear'] = 'bilinear',
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Insert values into a 2D image with bilinear interpolation.
 
     Parameters
     ----------
-    data: torch.Tensor
+    values: torch.Tensor
         `(...)` array of values to be inserted into `image`.
     coordinates: torch.Tensor
         `(..., 2)` array of 2D coordinates for each value in `data`.
@@ -105,7 +105,7 @@ def insert_into_image_2d(
     weights: torch.Tensor | None
         `(h, w)` array containing weights associated with each pixel in `image`.
         This is useful for tracking weights across multiple calls to this function.
-    mode: Literal['bilinear']
+    mode: Literal['nearest', 'bilinear']
         Interpolation mode used for adding data points to grid.
 
     Returns
@@ -113,7 +113,7 @@ def insert_into_image_2d(
     image, weights: tuple[torch.Tensor, torch.Tensor]
         The image and weights after updating with data from `data` at `coordinates`.
     """
-    if data.shape != coordinates.shape[:-1]:
+    if values.shape != coordinates.shape[:-1]:
         raise ValueError('One coordinate pair is required for each value in data.')
     if coordinates.shape[-1] != 2:
         raise ValueError('Coordinates must be of shape (..., 2).')
@@ -121,39 +121,54 @@ def insert_into_image_2d(
         weights = torch.zeros_like(image)
 
     # linearise data and coordinates
-    data, _ = einops.pack([data], pattern='*')
+    values, _ = einops.pack([values], pattern='*')
     coordinates, _ = einops.pack([coordinates], pattern='* zyx')
     coordinates = coordinates.float()
 
     # only keep data and coordinates inside the image
-    in_image_idx = (coordinates >= 0) & (
-        coordinates <= torch.tensor(image.shape, device=image.device) - 1
-    )
-    in_image_idx = torch.all(in_image_idx, dim=-1)
-    data, coordinates = data[in_image_idx], coordinates[in_image_idx]
+    upper_bound = torch.tensor(image.shape, device=image.device) - 1
+    idx_inside = (coordinates >= 0) & (coordinates <= upper_bound)
+    idx_inside = torch.all(idx_inside, dim=-1)
+    values, coordinates = values[idx_inside], coordinates[idx_inside]
 
+    # splat data onto grid
+    if mode == 'nearest':
+        image = _insert_nearest_2d(values, coordinates, image)
+    if mode == 'bilinear':
+        image, weights = _insert_linear_2d(values, coordinates, image, weights)
+    return image, weights
+
+
+def _insert_nearest_2d(data, coordinates, image, weights):
+    coordinates = torch.round(coordinates)
+    idx_y, idx_x = einops.rearrange(coordinates, 'b yx -> yx b')
+    image.index_put_(indices=(idx_y, idx_x), values=data, accumulate=False)
+    w = torch.ones(len(coordinates), device=weights.device, dtype=weights.dtype)
+    weights.index_put_(indices=(idx_y, idx_x), values=w, accumulate=True)
+    return image
+
+
+def _insert_linear_2d(data, coordinates, image, weights):
     # calculate and cache floor and ceil of coordinates for each value to be inserted
-    corner_coordinates = torch.empty(size=(data.shape[0], 2, 2), dtype=torch.long,
-                                     device=image.device
-                                     )
-    corner_coordinates[:, 0] = torch.floor(coordinates)
-    corner_coordinates[:, 1] = torch.ceil(coordinates)
+    corner_coords = torch.empty(size=(data.shape[0], 2, 2), dtype=torch.long, device=image.device)
+    corner_coords[:, 0] = torch.floor(coordinates)
+    corner_coords[:, 1] = torch.ceil(coordinates)
 
     # calculate linear interpolation weights for each data point being inserted
     _weights = torch.empty(size=(data.shape[0], 2, 2), device=image.device
                            )  # (b, 2, yx)
-    _weights[:, 1] = coordinates - corner_coordinates[:, 0]  # upper corner weights
+    _weights[:, 1] = coordinates - corner_coords[:, 0]  # upper corner weights
     _weights[:, 0] = 1 - _weights[:, 1]  # lower corner weights
 
     # define function for adding weighted data at nearest 4 pixels to each coordinate
     # make sure to do atomic adds, don't just override existing data at each position
     def add_data_at_corner(y: Literal[0, 1], x: Literal[0, 1]):
         w = einops.reduce(_weights[:, [y, x], [0, 1]], 'b yx -> b', reduction='prod')
-        yc, xc = einops.rearrange(corner_coordinates[:, [y, x], [0, 1]], 'b yx -> yx b')
-        image.index_put_(indices=(yc, xc), values=w * data, accumulate=True)
-        weights.index_put_(indices=(yc, xc), values=w, accumulate=True)
+        idx_y, idx_x = einops.rearrange(corner_coords[:, [y, x], [0, 1]],'b yx -> yx b')
+        image.index_put_(indices=(idx_y, idx_x), values=w * data, accumulate=True)
+        weights.index_put_(indices=(idx_y, idx_x), values=w, accumulate=True)
 
-    # insert correctly weighted data at each of 4 nearest pixels
+    # insert correctly weighted data at each of 4 nearest pixels then return
     add_data_at_corner(0, 0)
     add_data_at_corner(0, 1)
     add_data_at_corner(1, 0)

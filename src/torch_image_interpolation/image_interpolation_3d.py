@@ -88,7 +88,7 @@ def sample_image_3d(
 
 
 def insert_into_image_3d(
-    data: torch.Tensor,
+    values: torch.Tensor,
     coordinates: torch.Tensor,
     image: torch.Tensor,
     weights: torch.Tensor | None = None,
@@ -98,7 +98,7 @@ def insert_into_image_3d(
 
     Parameters
     ----------
-    data: torch.Tensor
+    values: torch.Tensor
         `(...)` array of values to be inserted into `image`.
     coordinates: torch.Tensor
         `(..., 3)` array of 3D coordinates for each value in `data`.
@@ -117,7 +117,7 @@ def insert_into_image_3d(
     image, weights: tuple[torch.Tensor, torch.Tensor]
         The image and weights after updating with data from `data` at `coordinates`.
     """
-    if data.shape != coordinates.shape[:-1]:
+    if values.shape != coordinates.shape[:-1]:
         raise ValueError('One coordinate triplet is required for each value in data.')
     if coordinates.shape[-1] != 3:
         raise ValueError('Coordinates must be of shape (..., 3).')
@@ -125,7 +125,7 @@ def insert_into_image_3d(
         weights = torch.zeros_like(image)
 
     # linearise data and coordinates
-    data, _ = einops.pack([data], pattern='*')  # (...) -> (n, )
+    values, _ = einops.pack([values], pattern='*')  # (...) -> (n, )
     coordinates, _ = einops.pack([coordinates], pattern='* zyx')  # (..., 3) -> (n, 3)
     coordinates = coordinates.float()
 
@@ -134,16 +134,16 @@ def insert_into_image_3d(
         coordinates <= torch.tensor(image.shape, device=image.device) - 1
     )
     inside = torch.all(inside, dim=-1)
-    data, coordinates = data[inside], coordinates[inside]
+    values, coordinates = values[inside], coordinates[inside]
 
     # cache floor and ceil of coordinates for each data point being inserted
-    _c = torch.empty(size=(data.shape[0], 2, 3), dtype=torch.int64, device=image.device)
+    _c = torch.empty(size=(values.shape[0], 2, 3), dtype=torch.int64, device=image.device)
     _c[:, 0] = torch.floor(coordinates)  # for lower corners
     _c[:, 1] = torch.ceil(coordinates)  # for upper corners
 
     # calculate linear interpolation weights for each data point being inserted
     w_dtype = torch.float64 if image.is_complex() else image.dtype
-    _w = torch.empty(size=(data.shape[0], 2, 3), dtype=w_dtype, device=image.device
+    _w = torch.empty(size=(values.shape[0], 2, 3), dtype=w_dtype, device=image.device
                      )  # (b, 2, zyx)
     _w[:, 1] = coordinates - _c[:, 0]  # upper corner weights
     _w[:, 0] = 1 - _w[:, 1]  # lower corner weights
@@ -153,7 +153,7 @@ def insert_into_image_3d(
     def add_data_at_corner(z: Literal[0, 1], y: Literal[0, 1], x: Literal[0, 1]):
         w = einops.reduce(_w[:, [z, y, x], [0, 1, 2]], 'b zyx -> b', reduction='prod')
         zc, yc, xc = einops.rearrange(_c[:, [z, y, x], [0, 1, 2]], 'b zyx -> zyx b')
-        image.index_put_(indices=(zc, yc, xc), values=w * data, accumulate=True)
+        image.index_put_(indices=(zc, yc, xc), values=w * values, accumulate=True)
         weights.index_put_(indices=(zc, yc, xc), values=w, accumulate=True)
 
     # insert correctly weighted data at each of 8 nearest voxels
