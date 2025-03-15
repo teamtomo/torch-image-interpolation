@@ -92,7 +92,7 @@ def insert_into_image_3d(
     coordinates: torch.Tensor,
     image: torch.Tensor,
     weights: torch.Tensor | None = None,
-    mode: Literal['trilinear'] = 'trilinear',
+    mode: Literal['nearest', 'trilinear'] = 'trilinear',
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Insert values into a 3D image with trilinear interpolation.
 
@@ -109,7 +109,7 @@ def insert_into_image_3d(
     weights: torch.Tensor | None
         `(d, h, w)` array containing weights associated with each pixel in `image`.
         This is useful for tracking weights across multiple calls to this function.
-    mode: Literal['trilinear']
+    mode: Literal['nearest', 'trilinear']
         Interpolation mode used for adding data points to grid.
 
     Returns
@@ -130,12 +130,28 @@ def insert_into_image_3d(
     coordinates = coordinates.float()
 
     # only keep data and coordinates inside the volume
-    inside = (coordinates >= 0) & (
-        coordinates <= torch.tensor(image.shape, device=image.device) - 1
-    )
+    upper_bound = torch.tensor(image.shape, device=image.device) - 1
+    inside = (coordinates >= 0) & (coordinates <= upper_bound)
     inside = torch.all(inside, dim=-1)
     values, coordinates = values[inside], coordinates[inside]
 
+    # splat data onto grid according to interpolation mode
+    if mode == 'nearest':
+        image, weights = _insert_nearest_3d(values, coordinates, image, weights)
+    elif mode == 'trilinear':
+        image, weights = _insert_linear_3d(values, coordinates, image, weights)
+    return image, weights
+
+
+def _insert_nearest_3d(values, coordinates, image, weights):
+    coordinates = torch.round(coordinates)
+    idx_z, idx_y, idx_x = einops.rearrange(coordinates, 'b zyx -> zyx b')
+    image.index_put_(indices=(idx_z, idx_y, idx_x), values=values, accumulate=False)
+    w = torch.ones(len(coordinates), device=weights.device, dtype=weights.dtype)
+    weights.index_put_(indices=(idx_z, idx_y, idx_x), values=w, accumulate=True)
+    return image
+
+def _insert_linear_3d(values, coordinates, image, weights):
     # cache floor and ceil of coordinates for each data point being inserted
     _c = torch.empty(size=(values.shape[0], 2, 3), dtype=torch.int64, device=image.device)
     _c[:, 0] = torch.floor(coordinates)  # for lower corners
@@ -152,11 +168,11 @@ def insert_into_image_3d(
     # make sure to do atomic adds, don't just override existing data at each position
     def add_data_at_corner(z: Literal[0, 1], y: Literal[0, 1], x: Literal[0, 1]):
         w = einops.reduce(_w[:, [z, y, x], [0, 1, 2]], 'b zyx -> b', reduction='prod')
-        zc, yc, xc = einops.rearrange(_c[:, [z, y, x], [0, 1, 2]], 'b zyx -> zyx b')
-        image.index_put_(indices=(zc, yc, xc), values=w * values, accumulate=True)
-        weights.index_put_(indices=(zc, yc, xc), values=w, accumulate=True)
+        idx_z, idx_y, idx_x = einops.rearrange(_c[:, [z, y, x], [0, 1, 2]], 'b zyx -> zyx b')
+        image.index_put_(indices=(idx_z, idx_y, idx_x), values=w * values, accumulate=True)
+        weights.index_put_(indices=(idx_z, idx_y, idx_x), values=w, accumulate=True)
 
-    # insert correctly weighted data at each of 8 nearest voxels
+    # insert correctly weighted data at each of 8 nearest voxels and return
     add_data_at_corner(0, 0, 0)
     add_data_at_corner(0, 0, 1)
     add_data_at_corner(0, 1, 0)
@@ -165,5 +181,4 @@ def insert_into_image_3d(
     add_data_at_corner(1, 0, 1)
     add_data_at_corner(1, 1, 0)
     add_data_at_corner(1, 1, 1)
-
     return image, weights
