@@ -2,7 +2,7 @@ import einops
 import torch
 import numpy as np
 
-from torch_image_lerp import sample_image_2d, insert_into_image_2d
+from torch_image_interpolation import sample_image_2d, insert_into_image_2d
 
 
 def test_sample_image_2d():

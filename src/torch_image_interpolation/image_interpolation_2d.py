@@ -9,9 +9,10 @@ from .grid_sample_utils import array_to_grid_sample
 
 def sample_image_2d(
     image: torch.Tensor,
-    coordinates: torch.Tensor
+    coordinates: torch.Tensor,
+    mode: Literal['nearest', 'bilinear', 'bicubic'] = 'bilinear',
 ) -> torch.Tensor:
-    """Sample a 2D image with bilinear interpolation.
+    """Sample a 2D image with a specific interpolation mode.
 
     Parameters
     ----------
@@ -21,6 +22,8 @@ def sample_image_2d(
         `(..., 2)` array of coordinates at which `image` should be sampled.
         - Coordinates are ordered `yx` and are positions in the `h` and `w` dimensions respectively.
         - Coordinates span the range `[0, N-1]` for a dimension of length N.
+    mode: Literal['nearest', 'bilinear', 'bicubic']
+        Interpolation mode for image sampling.
 
     Returns
     -------
@@ -30,16 +33,18 @@ def sample_image_2d(
     if len(image.shape) != 2:
         raise ValueError(f'image should have shape (h, w), got {image.shape}')
 
-    # setup for sampling with torch.nn.functional.grid_sample
-    complex_input = torch.is_complex(image)
+    # set up for sampling with torch.nn.functional.grid_sample
+    # shape (..., 2) -> (n, 2)
     coordinates, ps = einops.pack([coordinates], pattern='* yx')
     n_samples = coordinates.shape[0]
     h, w = image.shape[-2:]
 
+    # handle complex input
+    complex_input = torch.is_complex(image)
     if complex_input is True:
         # cannot sample complex tensors directly with grid_sample
         # c.f. https://github.com/pytorch/pytorch/issues/67634
-        # workaround: treat real and imaginary parts as separate channels
+        # workaround: treat real and imaginary parts as separate channels and sample independently
         image = torch.view_as_real(image)
         image = einops.rearrange(image, 'h w complex -> complex h w')
         image = einops.repeat(image, 'complex h w -> b complex h w', b=n_samples)
@@ -48,21 +53,24 @@ def sample_image_2d(
         image = einops.repeat(image, 'h w -> b 1 h w', b=n_samples)  # b c h w
         coordinates = einops.rearrange(coordinates, 'b zyx -> b 1 1 zyx')  # b h w zyx
 
-    # take the samples
+    # take the samples at each point
     samples = F.grid_sample(
         input=image,
         grid=array_to_grid_sample(coordinates, array_shape=(h, w)),
-        mode='bilinear',
-        padding_mode='border',  # this increases sampling fidelity at edges
+        mode=mode,
+        padding_mode='border' if mode == 'bilinear' else 'reflection',
+        # this increases sampling fidelity at edges
         align_corners=True,
     )
+
+    # if input was complex, reconstruct complex numbers from channels
     if complex_input is True:
         samples = einops.rearrange(samples, 'b complex 1 1 -> b complex')
         samples = torch.view_as_complex(samples.contiguous())  # (b, )
     else:
         samples = einops.rearrange(samples, 'b 1 1 1 -> b')
 
-    # set samples from outside of image to zero
+    # set samples from outside of image to zero explicitly
     coordinates = einops.rearrange(coordinates, 'b 1 1 yx -> b yx')
     image_shape = torch.as_tensor((h, w), device=image.device)
     inside = torch.logical_and(coordinates >= 0, coordinates <= image_shape - 1)
@@ -70,6 +78,7 @@ def sample_image_2d(
     samples[~inside] *= 0
 
     # pack samples back into the expected shape and return
+    # shape (n, ) -> (...)
     [samples] = einops.unpack(samples, pattern='*', packed_shapes=ps)
     return samples  # (...)
 
@@ -79,6 +88,7 @@ def insert_into_image_2d(
     coordinates: torch.Tensor,
     image: torch.Tensor,
     weights: torch.Tensor | None = None,
+    mode: Literal['bilinear'] = 'bilinear',
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Insert values into a 2D image with bilinear interpolation.
 
@@ -95,6 +105,8 @@ def insert_into_image_2d(
     weights: torch.Tensor | None
         `(h, w)` array containing weights associated with each pixel in `image`.
         This is useful for tracking weights across multiple calls to this function.
+    mode: Literal['bilinear']
+        Interpolation mode used for adding data points to grid.
 
     Returns
     -------
@@ -115,18 +127,21 @@ def insert_into_image_2d(
 
     # only keep data and coordinates inside the image
     in_image_idx = (coordinates >= 0) & (
-            coordinates <= torch.tensor(image.shape, device=image.device) - 1
+        coordinates <= torch.tensor(image.shape, device=image.device) - 1
     )
     in_image_idx = torch.all(in_image_idx, dim=-1)
     data, coordinates = data[in_image_idx], coordinates[in_image_idx]
 
     # calculate and cache floor and ceil of coordinates for each value to be inserted
-    corner_coordinates = torch.empty(size=(data.shape[0], 2, 2), dtype=torch.long, device=image.device)
+    corner_coordinates = torch.empty(size=(data.shape[0], 2, 2), dtype=torch.long,
+                                     device=image.device
+                                     )
     corner_coordinates[:, 0] = torch.floor(coordinates)
     corner_coordinates[:, 1] = torch.ceil(coordinates)
 
     # calculate linear interpolation weights for each data point being inserted
-    _weights = torch.empty(size=(data.shape[0], 2, 2), device=image.device)  # (b, 2, yx)
+    _weights = torch.empty(size=(data.shape[0], 2, 2), device=image.device
+                           )  # (b, 2, yx)
     _weights[:, 1] = coordinates - corner_coordinates[:, 0]  # upper corner weights
     _weights[:, 0] = 1 - _weights[:, 1]  # lower corner weights
 

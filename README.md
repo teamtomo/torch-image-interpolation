@@ -1,12 +1,12 @@
-# torch-image-lerp
+# torch-image-interpolation
 
-[![License](https://img.shields.io/pypi/l/torch-image-lerp.svg?color=green)](https://github.com/teamtomo/torch-image-lerp/raw/main/LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/torch-image-lerp.svg?color=green)](https://pypi.org/project/torch-image-lerp)
-[![Python Version](https://img.shields.io/pypi/pyversions/torch-image-lerp.svg?color=green)](https://python.org)
-[![CI](https://github.com/teamtomo/torch-image-lerp/actions/workflows/ci.yml/badge.svg)](https://github.com/teamtomo/torch-image-lerp/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/teamtomo/torch-image-lerp/branch/main/graph/badge.svg)](https://codecov.io/gh/teamtomo/torch-image-lerp)
+[![License](https://img.shields.io/pypi/l/torch-image-interpolation.svg?color=green)](https://github.com/teamtomo/torch-image-interpolation/raw/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/torch-image-interpolation.svg?color=green)](https://pypi.org/project/torch-image-interpolation)
+[![Python Version](https://img.shields.io/pypi/pyversions/torch-image-interpolation.svg?color=green)](https://python.org)
+[![CI](https://github.com/teamtomo/torch-image-interpolation/actions/workflows/ci.yml/badge.svg)](https://github.com/teamtomo/torch-image-interpolation/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/teamtomo/torch-image-interpolation/branch/main/graph/badge.svg)](https://codecov.io/gh/teamtomo/torch-image-interpolation)
 
-Linear 2D/3D image interpolation and gridding in PyTorch.
+2D/3D image interpolation and gridding in PyTorch.
 
 ## Why?
 
@@ -19,7 +19,7 @@ Operations are differentiable and sampling from complex valued images is support
 # Installation
 
 ```shell
-pip install torch-image-lerp
+pip install torch-image-interpolation
 ```
 
 # Usage
@@ -29,7 +29,7 @@ pip install torch-image-lerp
 ```python
 import torch
 import numpy as np
-from torch_image_lerp import sample_image_2d
+from torch_image_interpolation import sample_image_2d
 
 image = torch.rand((28, 28))
 
@@ -47,7 +47,7 @@ The API is identical for 3D but takes `(..., 3)` coordinates and a `(d, h, w)` i
 ```python
 import torch
 import numpy as np
-from torch_image_lerp import insert_into_image_2d
+from torch_image_interpolation import insert_into_image_2d
 
 image = torch.zeros((28, 28))
 

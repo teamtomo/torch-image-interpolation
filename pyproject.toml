@@ -15,7 +15,7 @@ sources = ["src"]
 
 # https://peps.python.org/pep-0621/
 [project]
-name = "torch-image-lerp"
+name = "torch-image-interpolation"
 dynamic = ["version"]
 description = "Linear interpolation and gridding for 2D and 3D images in PyTorch"
 readme = "README.md"
@@ -55,17 +55,17 @@ dev = [
 ]
 
 [project.urls]
-homepage = "https://github.com/teamtomo/torch-image-lerp"
-repository = "https://github.com/teamtomo/torch-image-lerp"
+homepage = "https://github.com/teamtomo/torch-image-interpolation"
+repository = "https://github.com/teamtomo/torch-image-interpolation"
 
 # Entry points
 # https://peps.python.org/pep-0621/#entry-points
 # same as console_scripts entry point
 # [project.scripts]
-# torch-image-lerp-cli = "torch_image_lerp:main_cli"
+# torch-image-interpolation-cli = "torch_image_interpolation:main_cli"
 
 # [project.entry-points."some.group"]
-# tomatoes = "torch_image_lerp:main_tomatoes"
+# tomatoes = "torch_image_interpolation:main_tomatoes"
 
 # https://docs.astral.sh/ruff
 [tool.ruff]
@@ -137,7 +137,7 @@ exclude_lines = [
 ]
 
 [tool.coverage.run]
-source = ["torch_image_lerp"]
+source = ["torch_image_interpolation"]
 
 # https://github.com/mgedmin/check-manifest#configuration
 # add files that you want check-manifest to explicitly ignore here
