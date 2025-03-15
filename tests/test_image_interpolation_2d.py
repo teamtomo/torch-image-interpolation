@@ -2,7 +2,7 @@ import einops
 import torch
 import numpy as np
 
-from torch_image_lerp import sample_image_2d, insert_into_image_2d
+from torch_image_interpolation import sample_image_2d, insert_into_image_2d
 
 
 def test_sample_image_2d():
@@ -37,7 +37,7 @@ def test_insert_into_image_2d():
     coordinate = torch.tensor([10.5, 14.5]).view((1, 2))
 
     # sample
-    image, weights = insert_into_image_2d(value, coordinates=coordinate, image=image)
+    image, weights = insert_into_image_2d(value, coordinates=coordinate, image=image, interpolation="bilinear")
 
     # check value (5) is evenly split over 4 nearest pixels
     expected = einops.repeat(torch.tensor([5 / 4]), '1 -> 2 2')
@@ -55,9 +55,25 @@ def test_insert_into_image_2d_multiple():
     coordinates = torch.tensor(np.random.randint(low=0, high=27, size=(6, 7, 8, 2)))
 
     # sample
-    image, weights = insert_into_image_2d(values, coordinates=coordinates, image=image)
+    image, weights = insert_into_image_2d(values, coordinates=coordinates, image=image, interpolation="bilinear")
 
     # check for nonzero value at one point
     sample_point = coordinates[0, 0, 0]
     y, x = sample_point
     assert image[y, x] > 0
+
+
+def test_insert_into_image_nearest_interp_2d():
+    image = torch.zeros((28, 28)).float()
+
+    # single value
+    value = torch.tensor([5]).float()
+    coordinate = torch.tensor([10.7, 14.3]).view((1, 2))
+
+    # sample
+    image, weights = insert_into_image_2d(value, coordinates=coordinate, image=image, interpolation='nearest')
+
+    # check value (5) is added at nearest pixel
+    expected = torch.zeros((28, 28)).float()
+    expected[11, 14] = 5
+    assert torch.allclose(image, expected)

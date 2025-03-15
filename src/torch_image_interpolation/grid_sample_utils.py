@@ -11,7 +11,6 @@ def array_to_grid_sample(
     These coordinates should be used with `align_corners=True` in
     `torch.nn.functional.grid_sample`.
 
-
     Parameters
     ----------
     array_coordinates: torch.Tensor

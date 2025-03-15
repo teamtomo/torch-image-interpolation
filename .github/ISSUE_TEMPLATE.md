@@ -1,4 +1,4 @@
-* torch-image-lerp version:
+* torch-image-interpolation version:
 * Python version:
 * Operating System:
 
