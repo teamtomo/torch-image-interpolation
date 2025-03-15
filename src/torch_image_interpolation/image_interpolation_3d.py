@@ -10,20 +10,20 @@ from .grid_sample_utils import array_to_grid_sample
 def sample_image_3d(
     image: torch.Tensor,
     coordinates: torch.Tensor,
-    mode: Literal['nearest', 'trilinear'] = 'trilinear',
+    interpolation: Literal['nearest', 'trilinear'] = 'trilinear',
 ) -> torch.Tensor:
     """Sample a 3D image with a specific interpolation mode.
 
     Parameters
     ----------
-    mode
+    interpolation
     image: torch.Tensor
         `(d, h, w)` image.
     coordinates: torch.Tensor
         `(..., 3)` array of coordinates at which `image` should be sampled.
         - Coordinates are ordered `zyx` and are positions in the `d`, `h` and `w` dimensions respectively.
         - Coordinates span the range `[0, N-1]` for a dimension of length N.
-    mode: Literal['nearest', 'trilinear']
+    interpolation: Literal['nearest', 'trilinear']
         Interpolation mode for image sampling.
 
     Returns
@@ -58,11 +58,11 @@ def sample_image_3d(
                                        )  # b d h w zyx
 
     # take the samples
-    mode = 'bilinear' if mode == 'trilinear' else mode
+    interpolation = 'bilinear' if interpolation == 'trilinear' else interpolation
     samples = F.grid_sample(
         input=image,
         grid=array_to_grid_sample(coordinates, array_shape=image.shape[-3:]),
-        mode=mode,  # bilinear is trilinear sampling when input is volumetric
+        mode=interpolation,  # bilinear is trilinear sampling when input is volumetric
         padding_mode='border',  # this increases sampling fidelity at edges
         align_corners=True,
     )
@@ -92,7 +92,7 @@ def insert_into_image_3d(
     coordinates: torch.Tensor,
     image: torch.Tensor,
     weights: torch.Tensor | None = None,
-    mode: Literal['nearest', 'trilinear'] = 'trilinear',
+    interpolation: Literal['nearest', 'trilinear'] = 'trilinear',
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Insert values into a 3D image with trilinear interpolation.
 
@@ -109,7 +109,7 @@ def insert_into_image_3d(
     weights: torch.Tensor | None
         `(d, h, w)` array containing weights associated with each pixel in `image`.
         This is useful for tracking weights across multiple calls to this function.
-    mode: Literal['nearest', 'trilinear']
+    interpolation: Literal['nearest', 'trilinear']
         Interpolation mode used for adding data points to grid.
 
     Returns
@@ -136,20 +136,21 @@ def insert_into_image_3d(
     values, coordinates = values[inside], coordinates[inside]
 
     # splat data onto grid according to interpolation mode
-    if mode == 'nearest':
+    if interpolation == 'nearest':
         image, weights = _insert_nearest_3d(values, coordinates, image, weights)
-    elif mode == 'trilinear':
+    elif interpolation == 'trilinear':
         image, weights = _insert_linear_3d(values, coordinates, image, weights)
     return image, weights
 
 
 def _insert_nearest_3d(values, coordinates, image, weights):
-    coordinates = torch.round(coordinates)
+    coordinates = torch.round(coordinates).long()
     idx_z, idx_y, idx_x = einops.rearrange(coordinates, 'b zyx -> zyx b')
     image.index_put_(indices=(idx_z, idx_y, idx_x), values=values, accumulate=False)
     w = torch.ones(len(coordinates), device=weights.device, dtype=weights.dtype)
     weights.index_put_(indices=(idx_z, idx_y, idx_x), values=w, accumulate=True)
-    return image
+    return image, weights
+
 
 def _insert_linear_3d(values, coordinates, image, weights):
     # cache floor and ceil of coordinates for each data point being inserted

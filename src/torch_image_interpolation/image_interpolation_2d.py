@@ -10,7 +10,7 @@ from .grid_sample_utils import array_to_grid_sample
 def sample_image_2d(
     image: torch.Tensor,
     coordinates: torch.Tensor,
-    mode: Literal['nearest', 'bilinear', 'bicubic'] = 'bilinear',
+    interpolation: Literal['nearest', 'bilinear', 'bicubic'] = 'bilinear',
 ) -> torch.Tensor:
     """Sample a 2D image with a specific interpolation mode.
 
@@ -22,7 +22,7 @@ def sample_image_2d(
         `(..., 2)` array of coordinates at which `image` should be sampled.
         - Coordinates are ordered `yx` and are positions in the `h` and `w` dimensions respectively.
         - Coordinates span the range `[0, N-1]` for a dimension of length N.
-    mode: Literal['nearest', 'bilinear', 'bicubic']
+    interpolation: Literal['nearest', 'bilinear', 'bicubic']
         Interpolation mode for image sampling.
 
     Returns
@@ -57,8 +57,8 @@ def sample_image_2d(
     samples = F.grid_sample(
         input=image,
         grid=array_to_grid_sample(coordinates, array_shape=(h, w)),
-        mode=mode,
-        padding_mode='border' if mode == 'bilinear' else 'reflection',
+        mode=interpolation,
+        padding_mode='border' if interpolation == 'bilinear' else 'reflection',
         # this increases sampling fidelity at edges
         align_corners=True,
     )
@@ -88,7 +88,7 @@ def insert_into_image_2d(
     coordinates: torch.Tensor,
     image: torch.Tensor,
     weights: torch.Tensor | None = None,
-    mode: Literal['nearest', 'bilinear'] = 'bilinear',
+    interpolation: Literal['nearest', 'bilinear'] = 'bilinear',
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Insert values into a 2D image with bilinear interpolation.
 
@@ -105,7 +105,7 @@ def insert_into_image_2d(
     weights: torch.Tensor | None
         `(h, w)` array containing weights associated with each pixel in `image`.
         This is useful for tracking weights across multiple calls to this function.
-    mode: Literal['nearest', 'bilinear']
+    interpolation: Literal['nearest', 'bilinear']
         Interpolation mode used for adding data points to grid.
 
     Returns
@@ -132,15 +132,15 @@ def insert_into_image_2d(
     values, coordinates = values[idx_inside], coordinates[idx_inside]
 
     # splat data onto grid
-    if mode == 'nearest':
-        image = _insert_nearest_2d(values, coordinates, image)
-    if mode == 'bilinear':
+    if interpolation == 'nearest':
+        image = _insert_nearest_2d(values, coordinates, image, weights)
+    if interpolation == 'bilinear':
         image, weights = _insert_linear_2d(values, coordinates, image, weights)
     return image, weights
 
 
 def _insert_nearest_2d(data, coordinates, image, weights):
-    coordinates = torch.round(coordinates)
+    coordinates = torch.round(coordinates).long()
     idx_y, idx_x = einops.rearrange(coordinates, 'b yx -> yx b')
     image.index_put_(indices=(idx_y, idx_x), values=data, accumulate=False)
     w = torch.ones(len(coordinates), device=weights.device, dtype=weights.dtype)
