@@ -29,6 +29,37 @@ def test_sample_image_3d_complex_input():
     assert samples.shape == (6, 7, 8)
 
 
+def test_sample_image_3d_multichannel_input():
+    n_channels = 3
+
+    # basic sanity check only
+    image = torch.rand((n_channels, 28, 28, 28))
+
+    # make an arbitrary stack (..., 3) of 3d coords
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 3)))
+
+    # sample
+    samples = sample_image_3d(image=image, coordinates=coords)
+    assert samples.shape == (*arbitrary_shape, n_channels)
+
+
+def test_sample_image_3d_multichannel_complex_input():
+    n_channels = 3
+
+    # basic sanity check only
+    image = torch.complex(real=torch.rand((28, 28, 28)), imag=torch.rand(28, 28, 28))
+    image = einops.repeat(image, 'd h w -> c d h w', c=n_channels)
+
+    # make an arbitrary stack (..., 3) of 3d coords
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 3)))
+
+    # sample
+    samples = sample_image_3d(image=image, coordinates=coords)
+    assert samples.shape == (*arbitrary_shape, n_channels)
+
+
 def test_insert_into_image_3d():
     image = torch.zeros((28, 28, 28)).float()
 
