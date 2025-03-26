@@ -17,8 +17,7 @@ This package provides a simple, consistent API for
 
 Operations are differentiable and interpolating from or into complex valued images is supported.
 
-For sampling [
-`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html)
+For sampling [`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html)
 is used under the hood.
 
 # Installation
@@ -83,6 +82,8 @@ samples_bicubic = sample_image_2d(image=image, coordinates=coords, interpolation
 
 The API is identical for 3D `(d, h, w)` images but takes `(..., 3)` arrays of
 coordinates.
+
+Sampling is supported for multichannel images in both 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
 
 ## Insert into image
 
