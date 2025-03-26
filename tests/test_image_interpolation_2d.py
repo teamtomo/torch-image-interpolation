@@ -1,6 +1,6 @@
 import einops
-import torch
 import numpy as np
+import torch
 
 from torch_image_interpolation import sample_image_2d, insert_into_image_2d
 
@@ -10,7 +10,8 @@ def test_sample_image_2d():
     image = torch.rand((28, 28))
 
     # make an arbitrary stack (..., 2) of 2d coords
-    coords = torch.tensor(np.random.randint(low=0, high=27, size=(6, 7, 8, 2)))
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 2)))
 
     # sample
     samples = sample_image_2d(image=image, coordinates=coords)
@@ -22,11 +23,42 @@ def test_sample_image_2d_complex_input():
     image = torch.complex(real=torch.rand((28, 28)), imag=torch.rand(28, 28))
 
     # make an arbitrary stack (..., 2) of 2d coords
-    coords = torch.tensor(np.random.randint(low=0, high=27, size=(6, 7, 8, 2)))
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 2)))
 
     # sample
     samples = sample_image_2d(image=image, coordinates=coords)
-    assert samples.shape == (6, 7, 8)
+    assert samples.shape == arbitrary_shape
+
+
+def test_sample_multichannel_image_2d():
+    n_channels = 3
+    # basic sanity check only
+    image = torch.rand((n_channels, 28, 28))
+
+    # make an arbitrary stack (..., 2) of 2d coords
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 2)))
+
+    # sample
+    samples = sample_image_2d(image=image, coordinates=coords)
+    assert samples.shape == (*arbitrary_shape, n_channels)
+
+
+def test_sample_image_2d_multichannel_complex_input():
+    n_channels = 3
+
+    # basic sanity check only
+    image = torch.complex(real=torch.rand((28, 28)), imag=torch.rand(28, 28))
+    image = einops.repeat(image, 'h w -> c h w', c=n_channels)
+
+    # make an arbitrary stack (..., 2) of 2d coords
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 2)))
+
+    # sample
+    samples = sample_image_2d(image=image, coordinates=coords)
+    assert samples.shape == (*arbitrary_shape, n_channels)
 
 
 def test_insert_into_image_2d():
