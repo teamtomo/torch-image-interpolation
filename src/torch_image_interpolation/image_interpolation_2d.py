@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from .grid_sample_utils import array_to_grid_sample
+from torch_image_interpolation import utils
 
 
 def sample_image_2d(
@@ -17,7 +18,7 @@ def sample_image_2d(
     Parameters
     ----------
     image: torch.Tensor
-        `(h, w)` image.
+        `(h, w)` image or `(c, h, w)` multi-channel image.
     coordinates: torch.Tensor
         `(..., 2)` array of coordinates at which `image` should be sampled.
         - Coordinates are ordered `yx` and are positions in the `h` and `w` dimensions respectively.
@@ -28,10 +29,20 @@ def sample_image_2d(
     Returns
     -------
     samples: torch.Tensor
-        `(..., )` array of samples from `image`.
+        `(..., )` or `(..., c)` array of samples from `image`.
     """
-    if len(image.shape) != 2:
-        raise ValueError(f'image should have shape (h, w), got {image.shape}')
+    device = coordinates.device
+
+    if image.ndim not in (2, 3):
+        raise ValueError(f'image should have shape (h, w) or (c, h, w), got {image.shape}')
+
+    # keep track of a few image properties
+    input_image_is_complex = torch.is_complex(image)
+    input_image_is_multichannel = image.ndim == 3
+
+    # coerce single channel to multi-channel
+    if input_image_is_multichannel is False:
+        image = einops.rearrange(image, 'h w -> 1 h w')
 
     # set up for sampling with torch.nn.functional.grid_sample
     # shape (..., 2) -> (n, 2)
@@ -40,47 +51,54 @@ def sample_image_2d(
     h, w = image.shape[-2:]
 
     # handle complex input
-    complex_input = torch.is_complex(image)
-    if complex_input is True:
+    if input_image_is_complex:
         # cannot sample complex tensors directly with grid_sample
         # c.f. https://github.com/pytorch/pytorch/issues/67634
-        # workaround: treat real and imaginary parts as separate channels and sample independently
+        # workaround: treat real and imaginary parts as separate channels
         image = torch.view_as_real(image)
-        image = einops.rearrange(image, 'h w complex -> complex h w')
-        image = einops.repeat(image, 'complex h w -> b complex h w', b=n_samples)
-        coordinates = einops.rearrange(coordinates, 'b zyx -> b 1 1 zyx')  # b h w zyx
-    else:
-        image = einops.repeat(image, 'h w -> b 1 h w', b=n_samples)  # b c h w
-        coordinates = einops.rearrange(coordinates, 'b zyx -> b 1 1 zyx')  # b h w zyx
+        image = einops.rearrange(image, 'c h w complex -> (complex c) h w')
 
-    # take the samples at each point
+    # torch.nn.functional.grid_sample is set up for sampling grids
+    # here we view our image as a batch of n_samples multi-channel images
+    # then sample a batch of (1x1) grids
+    # this enables sampling arbitrarily shaped arrays of coords
+    image = einops.repeat(image, 'c h w -> b c h w', b=n_samples)
+    coordinates = einops.rearrange(coordinates, 'b yx -> b 1 1 yx')  # b h w yx
+
+    # take the samples
     samples = F.grid_sample(
         input=image,
-        grid=array_to_grid_sample(coordinates, array_shape=(h, w)),
+        grid=array_to_grid_sample(coordinates, array_shape=image.shape[-2:]),
         mode=interpolation,
-        padding_mode='border' if interpolation == 'bilinear' else 'reflection',
-        # this increases sampling fidelity at edges
+        padding_mode='border',  # this increases sampling fidelity at edges
         align_corners=True,
     )
 
-    # if input was complex, reconstruct complex numbers from channels
-    if complex_input is True:
-        samples = einops.rearrange(samples, 'b complex 1 1 -> b complex')
-        samples = torch.view_as_complex(samples.contiguous())  # (b, )
+    # reconstruct complex valued samples if required
+    if input_image_is_complex is True:
+        samples = einops.rearrange(samples, 'b (complex c) 1 1 -> b c complex', complex=2)
+        samples = utils.view_as_complex(samples.contiguous())  # (b, c)
     else:
-        samples = einops.rearrange(samples, 'b 1 1 1 -> b')
+        samples = einops.rearrange(samples, 'b c 1 1 -> b c')
 
     # set samples from outside of image to zero explicitly
     coordinates = einops.rearrange(coordinates, 'b 1 1 yx -> b yx')
-    image_shape = torch.as_tensor((h, w), device=image.device)
+    image_shape = torch.as_tensor(image.shape[-2:]).to(device)
     inside = torch.logical_and(coordinates >= 0, coordinates <= image_shape - 1)
-    inside = torch.all(inside, dim=-1)  # (b, d, h, w)
+    inside = torch.all(inside, dim=-1)  # (b,)
     samples[~inside] *= 0
 
-    # pack samples back into the expected shape and return
-    # shape (n, ) -> (...)
-    [samples] = einops.unpack(samples, pattern='*', packed_shapes=ps)
-    return samples  # (...)
+    # pack samples back into the expected shape
+    # (b, c) -> (..., c)
+    [samples] = einops.unpack(samples, pattern='* c', packed_shapes=ps)
+
+    # ensure output has correct shape
+    # - (...) if input image was single channel
+    # - (..., c) if input image was multi-channel
+    if input_image_is_multichannel is False:
+        samples = einops.rearrange(samples, '... 1 -> ...')  # drop channel dim
+
+    return samples
 
 
 def insert_into_image_2d(
