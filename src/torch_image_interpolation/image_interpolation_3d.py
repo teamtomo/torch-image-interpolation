@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from .grid_sample_utils import array_to_grid_sample
+from torch_image_interpolation import utils
 
 
 def sample_image_3d(
@@ -76,7 +77,7 @@ def sample_image_3d(
     # reconstruct complex valued samples if required
     if input_image_is_complex is True:
         samples = einops.rearrange(samples, 'b (complex c) 1 1 1 -> b c complex', complex=2)
-        samples = torch.view_as_complex(samples.contiguous())  # (b, c)
+        samples = utils.view_as_complex(samples.contiguous())  # (b, c)
     else:
         samples = einops.rearrange(samples, 'b c 1 1 1 -> b c')
 

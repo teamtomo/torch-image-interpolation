@@ -10,11 +10,12 @@ def test_sample_image_3d():
     image = torch.rand((28, 28, 28))
 
     # make an arbitrary stack (..., 3) of 3d coords
-    coords = torch.tensor(np.random.randint(low=0, high=27, size=(6, 7, 8, 3)))
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 3)))
 
     # sample
     samples = sample_image_3d(image=image, coordinates=coords)
-    assert samples.shape == (6, 7, 8)
+    assert samples.shape == arbitrary_shape
 
 
 def test_sample_image_3d_complex_input():
@@ -22,11 +23,12 @@ def test_sample_image_3d_complex_input():
     image = torch.complex(real=torch.rand((28, 28, 28)), imag=torch.rand(28, 28, 28))
 
     # make an arbitrary stack (..., 3) of 3d coords
-    coords = torch.tensor(np.random.randint(low=0, high=27, size=(6, 7, 8, 3)))
+    arbitrary_shape = (6, 7, 8)
+    coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 3)))
 
     # sample
     samples = sample_image_3d(image=image, coordinates=coords)
-    assert samples.shape == (6, 7, 8)
+    assert samples.shape == arbitrary_shape
 
 
 def test_sample_image_3d_multichannel_input():
