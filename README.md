@@ -84,6 +84,9 @@ The API is identical for 3D `(d, h, w)` images but takes `(..., 3)` arrays of
 coordinates.
 
 Sampling is supported for multichannel images in both 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
+Sampling multichannel images returns `(..., c)` arrays of values. 
+
+
 
 ## Insert into image
 
@@ -112,8 +115,12 @@ image_nearest, weights_nearest = insert_into_image_2d(
 )
 ```
 
-The API is identical for 3D `(d, h, w)` images but takes `(..., 3)` arrays of
+The API is identical for 3D `(d, h, w)` images but requires `(..., 3)` arrays of
 coordinates.
+
+Insertion of is supported for multichannel images in both 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
+Inserting into multichannel images requires `(..., c)` arrays of values.
+
 
 ## Similar packages
 
