@@ -108,20 +108,20 @@ def insert_into_image_3d(
     weights: torch.Tensor | None = None,
     interpolation: Literal['nearest', 'trilinear'] = 'trilinear',
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Insert values into a 3D image with trilinear interpolation.
+    """Insert values into a 3D image with specified interpolation.
 
     Parameters
     ----------
     values: torch.Tensor
-        `(...)` array of values to be inserted into `image`.
+        `(...)` or `(..., c)` array of values to be inserted into `image`.
     coordinates: torch.Tensor
         `(..., 3)` array of 3D coordinates for each value in `data`.
         - Coordinates are ordered `zyx` and are positions in the `d`, `h` and `w` dimensions respectively.
         - Coordinates span the range `[0, N-1]` for a dimension of length N.
     image: torch.Tensor
-        `(d, h, w)` array into which data will be inserted.
+        `(d, h, w)` or `(c, d, h, w)` array containing the image into which data will be inserted.
     weights: torch.Tensor | None
-        `(d, h, w)` array containing weights associated with each pixel in `image`.
+        `(d, h, w)` array containing weights associated with each voxel in `image`.
         This is useful for tracking weights across multiple calls to this function.
     interpolation: Literal['nearest', 'trilinear']
         Interpolation mode used for adding data points to grid.
@@ -131,69 +131,138 @@ def insert_into_image_3d(
     image, weights: tuple[torch.Tensor, torch.Tensor]
         The image and weights after updating with data from `data` at `coordinates`.
     """
-    if values.shape != coordinates.shape[:-1]:
+    # keep track of a few properties of the inputs
+    input_image_is_multichannel = image.ndim == 4
+    d, h, w = image.shape[-3:]
+
+    # validate inputs
+    values_shape = values.shape[:-1] if input_image_is_multichannel else values.shape
+    coordinates_shape, coordinates_ndim = coordinates.shape[:-1], coordinates.shape[-1]
+
+    if values_shape != coordinates_shape:
         raise ValueError('One coordinate triplet is required for each value in data.')
-    if coordinates.shape[-1] != 3:
-        raise ValueError('Coordinates must be of shape (..., 3).')
+    if coordinates_ndim != 3:
+        raise ValueError('Coordinates must be 3D with shape (..., 3).')
     if weights is None:
-        weights = torch.zeros_like(image)
+        weights = torch.zeros(size=(d, h, w), dtype=torch.float32, device=image.device)
+
+    # add channel dim to both image and values if input image is not multichannel
+    if not input_image_is_multichannel:
+        image = einops.rearrange(image, 'd h w -> 1 d h w')
+        values = einops.rearrange(values, '... -> ... 1')
 
     # linearise data and coordinates
-    values, _ = einops.pack([values], pattern='*')  # (...) -> (n, )
-    coordinates, _ = einops.pack([coordinates], pattern='* zyx')  # (..., 3) -> (n, 3)
+    values, _ = einops.pack([values], pattern='* c')
+    coordinates, _ = einops.pack([coordinates], pattern='* zyx')
     coordinates = coordinates.float()
 
-    # only keep data and coordinates inside the volume
-    upper_bound = torch.tensor(image.shape, device=image.device) - 1
-    inside = (coordinates >= 0) & (coordinates <= upper_bound)
-    inside = torch.all(inside, dim=-1)
-    values, coordinates = values[inside], coordinates[inside]
+    # only keep data and coordinates inside the image
+    image_shape = torch.tensor((d, h, w), device=image.device, dtype=torch.float32)
+    upper_bound = image_shape - 1
+    idx_inside = (coordinates >= 0) & (coordinates <= upper_bound)
+    idx_inside = torch.all(idx_inside, dim=-1)
+    values, coordinates = values[idx_inside], coordinates[idx_inside]
 
-    # splat data onto grid according to interpolation mode
+    # splat data onto grid
     if interpolation == 'nearest':
         image, weights = _insert_nearest_3d(values, coordinates, image, weights)
-    elif interpolation == 'trilinear':
+    if interpolation == 'trilinear':
         image, weights = _insert_linear_3d(values, coordinates, image, weights)
+
+    # ensure correct output image shape
+    # single channel input -> (d, h, w)
+    # multichannel input -> (c, d, h, w)
+    if not input_image_is_multichannel:
+        image = einops.rearrange(image, '1 d h w -> d h w')
+
     return image, weights
 
 
-def _insert_nearest_3d(values, coordinates, image, weights):
+def _insert_nearest_3d(
+    data,  # (b, c)
+    coordinates,  # (b, zyx)
+    image,  # (c, d, h, w)
+    weights  # (d, h, w)
+):
+    # b is number of data points to insert per channel, c is number of channels
+    b, c = data.shape
+
+    # flatten data to insert values for all channels with one call to index_put()
+    data = einops.rearrange(data, 'b c -> b c')
+
+    # find nearest voxel for each coordinate
     coordinates = torch.round(coordinates).long()
     idx_z, idx_y, idx_x = einops.rearrange(coordinates, 'b zyx -> zyx b')
-    image.index_put_(indices=(idx_z, idx_y, idx_x), values=values, accumulate=False)
-    w = torch.ones(len(coordinates), device=weights.device, dtype=weights.dtype)
+
+    # insert ones into weights image (d, h, w) at each position
+    w = torch.ones(size=(b, 1), device=weights.device, dtype=weights.dtype)
+
+    # setup indices for insertion
+    idx_c = torch.arange(c, device=coordinates.device, dtype=torch.long)
+    idx_c = einops.rearrange(idx_c, 'c -> 1 c')
+    idx_z = einops.rearrange(idx_z, 'b -> b 1')
+    idx_y = einops.rearrange(idx_y, 'b -> b 1')
+    idx_x = einops.rearrange(idx_x, 'b -> b 1')
+
+    # insert image data and weights
+    image.index_put_(indices=(idx_c, idx_z, idx_y, idx_x), values=data, accumulate=True)
     weights.index_put_(indices=(idx_z, idx_y, idx_x), values=w, accumulate=True)
     return image, weights
 
 
-def _insert_linear_3d(values, coordinates, image, weights):
-    # cache floor and ceil of coordinates for each data point being inserted
-    _c = torch.empty(size=(values.shape[0], 2, 3), dtype=torch.int64, device=image.device)
-    _c[:, 0] = torch.floor(coordinates)  # for lower corners
-    _c[:, 1] = torch.ceil(coordinates)  # for upper corners
+def _insert_linear_3d(
+    data,  # (b, c)
+    coordinates,  # (b, zyx)
+    image,  # (c, d, h, w)
+    weights  # (d, h, w)
+):
+    # b is number of data points to insert per channel, c is number of channels
+    b, c = data.shape
 
-    # calculate linear interpolation weights for each data point being inserted
-    w_dtype = torch.float64 if image.is_complex() else image.dtype
-    _w = torch.empty(size=(values.shape[0], 2, 3), dtype=w_dtype, device=image.device
-                     )  # (b, 2, zyx)
-    _w[:, 1] = coordinates - _c[:, 0]  # upper corner weights
-    _w[:, 0] = 1 - _w[:, 1]  # lower corner weights
+    # cache corner coordinates for each value to be inserted
+    coordinates = einops.rearrange(coordinates, 'b zyx -> zyx b')
+    z0, y0, x0 = torch.floor(coordinates)
+    z1, y1, x1 = torch.ceil(coordinates)
 
-    # define function for adding weighted data at nearest 8 voxels to each coordinate
-    # make sure to do atomic adds, don't just override existing data at each position
-    def add_data_at_corner(z: Literal[0, 1], y: Literal[0, 1], x: Literal[0, 1]):
-        w = einops.reduce(_w[:, [z, y, x], [0, 1, 2]], 'b zyx -> b', reduction='prod')
-        idx_z, idx_y, idx_x = einops.rearrange(_c[:, [z, y, x], [0, 1, 2]], 'b zyx -> zyx b')
-        image.index_put_(indices=(idx_z, idx_y, idx_x), values=w * values, accumulate=True)
-        weights.index_put_(indices=(idx_z, idx_y, idx_x), values=w, accumulate=True)
+    # populate arrays of corner indices
+    idx_z = torch.empty(size=(b, 2, 2, 2), dtype=torch.long, device=image.device)
+    idx_y = torch.empty(size=(b, 2, 2, 2), dtype=torch.long, device=image.device)
+    idx_x = torch.empty(size=(b, 2, 2, 2), dtype=torch.long, device=image.device)
 
-    # insert correctly weighted data at each of 8 nearest voxels and return
-    add_data_at_corner(0, 0, 0)
-    add_data_at_corner(0, 0, 1)
-    add_data_at_corner(0, 1, 0)
-    add_data_at_corner(0, 1, 1)
-    add_data_at_corner(1, 0, 0)
-    add_data_at_corner(1, 0, 1)
-    add_data_at_corner(1, 1, 0)
-    add_data_at_corner(1, 1, 1)
+    idx_z[:, 0, 0, 0], idx_y[:, 0, 0, 0], idx_x[:, 0, 0, 0] = z0, y0, x0  # C000
+    idx_z[:, 0, 0, 1], idx_y[:, 0, 0, 1], idx_x[:, 0, 0, 1] = z0, y0, x1  # C001
+    idx_z[:, 0, 1, 0], idx_y[:, 0, 1, 0], idx_x[:, 0, 1, 0] = z0, y1, x0  # C010
+    idx_z[:, 0, 1, 1], idx_y[:, 0, 1, 1], idx_x[:, 0, 1, 1] = z0, y1, x1  # C011
+    idx_z[:, 1, 0, 0], idx_y[:, 1, 0, 0], idx_x[:, 1, 0, 0] = z1, y0, x0  # C100
+    idx_z[:, 1, 0, 1], idx_y[:, 1, 0, 1], idx_x[:, 1, 0, 1] = z1, y0, x1  # C101
+    idx_z[:, 1, 1, 0], idx_y[:, 1, 1, 0], idx_x[:, 1, 1, 0] = z1, y1, x0  # C110
+    idx_z[:, 1, 1, 1], idx_y[:, 1, 1, 1], idx_x[:, 1, 1, 1] = z1, y1, x1  # C111
+
+    # calculate trilinear interpolation weights for each corner
+    z, y, x = coordinates
+    tz, ty, tx = z - z0, y - y0, x - x0  # fractional position between voxel corners
+    w = torch.empty(size=(b, 2, 2, 2), device=image.device)
+
+    w[:, 0, 0, 0] = (1 - tz) * (1 - ty) * (1 - tx)  # C000
+    w[:, 0, 0, 1] = (1 - tz) * (1 - ty) * tx        # C001
+    w[:, 0, 1, 0] = (1 - tz) * ty * (1 - tx)        # C010
+    w[:, 0, 1, 1] = (1 - tz) * ty * tx              # C011
+    w[:, 1, 0, 0] = tz * (1 - ty) * (1 - tx)        # C100
+    w[:, 1, 0, 1] = tz * (1 - ty) * tx              # C101
+    w[:, 1, 1, 0] = tz * ty * (1 - tx)              # C110
+    w[:, 1, 1, 1] = tz * ty * tx                    # C111
+
+    # make sure indices broadcast correctly
+    idx_c = torch.arange(c, device=coordinates.device, dtype=torch.long)
+    idx_c = einops.rearrange(idx_c, 'c -> 1 c 1 1 1')
+    idx_z = einops.rearrange(idx_z, 'b z y x -> b 1 z y x')
+    idx_y = einops.rearrange(idx_y, 'b z y x -> b 1 z y x')
+    idx_x = einops.rearrange(idx_x, 'b z y x -> b 1 z y x')
+
+    # insert weighted data and weight values at each corner
+    data = einops.rearrange(data, 'b c -> b c 1 1 1')
+    w = einops.rearrange(w, 'b z y x -> b 1 z y x')
+    image.index_put_(indices=(idx_c, idx_z, idx_y, idx_x), values=w * data, accumulate=True)
+    weights.index_put_(indices=(idx_z, idx_y, idx_x), values=w, accumulate=True)
+
     return image, weights
