@@ -95,6 +95,50 @@ def test_insert_into_image_2d_multiple():
     assert image[y, x] > 0
 
 
+def test_insert_multiple_values_into_multichannel_image_2d_bilinear():
+    n_channels = 3
+    image = torch.zeros((n_channels, 28, 28)).float()
+
+    # multiple values
+    arbitrary_shape = (6, 7, 8)
+    values = torch.ones(size=(*arbitrary_shape, n_channels)).float()
+    coordinates = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 2)))
+
+    # sample
+    image, weights = insert_into_image_2d(values, coordinates=coordinates, image=image, interpolation="bilinear")
+
+    # check for nonzero value at one point
+    sample_point = coordinates[0, 0, 0]
+    y, x = sample_point
+    assert image[0, y, x] > 0
+
+    # check output shapes
+    assert image.shape == (n_channels, 28, 28)
+    assert weights.shape == (28, 28)
+
+
+def test_insert_multiple_values_into_multichannel_image_2d_nearest():
+    n_channels = 3
+    image = torch.zeros((n_channels, 28, 28)).float()
+
+    # multiple values
+    arbitrary_shape = (6, 7, 8)
+    values = torch.ones(size=(*arbitrary_shape, n_channels)).float()
+    coordinates = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape, 2)))
+
+    # sample
+    image, weights = insert_into_image_2d(values, coordinates=coordinates, image=image, interpolation="nearest")
+
+    # check for nonzero value at one point
+    sample_point = coordinates[0, 0, 0]
+    y, x = sample_point
+    assert image[0, y, x] > 0
+
+    # check output shapes
+    assert image.shape == (n_channels, 28, 28)
+    assert weights.shape == (28, 28)
+
+
 def test_insert_into_image_nearest_interp_2d():
     image = torch.zeros((28, 28)).float()
 
