@@ -15,10 +15,10 @@ This package provides a simple, consistent API for
 - sampling values from 2D/3D images (`sample_image_2d()`/`sample_image_3d()`)
 - inserting values into 2D/3D images (`insert_into_image_2d()`/`insert_into_image_3d`)
 
-Operations are differentiable and interpolating from or into complex valued images is supported.
+Operations are differentiable, multichannel data and complex valued images are supported.
 
-For sampling [`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html)
-is used under the hood.
+[`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html)
+is used under the hood for sampling.
 
 # Installation
 
@@ -36,7 +36,7 @@ Fractional coordinates are supported and values are interpolated appropriately.
 
 ### 2D Images
 
-For 2D images with shape `(h, w)`:
+For 2D images with shape `(h, w)` or `(c, h, w)`:
 
 Coordinates are ordered as `[y, x]` where:
 
@@ -47,7 +47,7 @@ For example, in a `(28, 28)` image, valid coordinates range from `[0, 0]` to `[2
 
 ### 3D Images
 
-For 3D images with shape `(d, h, w)`:
+For 3D images with shape `(d, h, w)` or `(c, d, h, w)`:
 
 Coordinates are ordered as `[z, y, x]` where:
 
