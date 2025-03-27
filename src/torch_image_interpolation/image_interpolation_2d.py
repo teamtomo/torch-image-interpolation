@@ -157,16 +157,24 @@ def insert_into_image_2d(
     coordinates = coordinates.float()
 
     # only keep data and coordinates inside the image
-    upper_bound = torch.tensor(image.shape, device=image.device) - 1
+    image_shape = torch.tensor((h, w), device=image.device, dtype=torch.float32)
+    upper_bound = image_shape - 1
     idx_inside = (coordinates >= 0) & (coordinates <= upper_bound)
     idx_inside = torch.all(idx_inside, dim=-1)
     values, coordinates = values[idx_inside], coordinates[idx_inside]
 
     # splat data onto grid
     if interpolation == 'nearest':
-        image = _insert_nearest_2d(values, coordinates, image, weights)
+        image, weights = _insert_nearest_2d(values, coordinates, image, weights)
     if interpolation == 'bilinear':
         image, weights = _insert_linear_2d(values, coordinates, image, weights)
+
+    # ensure correct output image shape
+    # single channel input -> (h, w)
+    # multichannel input -> (c, h, w)
+    if not input_image_is_multichannel:
+        image = einops.rearrange(image, '1 h w -> h w')
+
     return image, weights
 
 
@@ -176,54 +184,77 @@ def _insert_nearest_2d(
     image,  # (c, h, w)
     weights  # (h, w)
 ):
-    # b is number of samples per channel, c is number of channels
+    # b is number of data points to insert per channel, c is number of channels
     b, c = data.shape
 
     # flatten data to insert values for all channels with one call to _index_put()
-    data = einops.rearrange(data, 'b c -> (b c)')
+    data = einops.rearrange(data, 'b c -> b c')
 
-    # repeat yx coords for insertion into each of c channels
+    # find nearest voxel for each coordinate
     coordinates = torch.round(coordinates).long()
-    coordinates = einops.repeat(coordinates, 'b yx -> (b c) yx', c=c)
+    idx_h, idx_w = einops.rearrange(coordinates, 'b yx -> yx b')
 
-    # grab indices for insertion in each spatial dimension for all channels
-    idx_y, idx_x = einops.rearrange(coordinates, '(b c) yx -> yx (b c)')
+    # insert ones into weights image (h, w) at each position
+    w = torch.ones(size=(b, 1), device=weights.device, dtype=weights.dtype)
 
-    # now get corresponding channel indices
+    # setup indices for insertion
     idx_c = torch.arange(c, device=coordinates.device, dtype=torch.long)
-    idx_c = einops.repeat(idx_c, 'c -> (b c)', b=b)
+    idx_c = einops.rearrange(idx_c, 'c -> 1 c')
+    idx_h = einops.rearrange(idx_h, 'b -> b 1')
+    idx_w = einops.rearrange(idx_w, 'b -> b 1')
 
-    # insert image data into all channels
-    image.index_put_(indices=(idx_c, idx_y, idx_x), values=data, accumulate=True)
-
-    # insert ones into weights image at each position
-    w = torch.ones(len(coordinates), device=weights.device, dtype=weights.dtype)
-    weights.index_put_(indices=(idx_y, idx_x), values=w, accumulate=True)
-    return image
+    # insert image data and weights
+    image.index_put_(indices=(idx_c, idx_h, idx_w), values=data, accumulate=True)
+    weights.index_put_(indices=(idx_h, idx_w), values=w, accumulate=True)
+    return image, weights
 
 
-def _insert_linear_2d(data, coordinates, image, weights):
-    # calculate and cache floor and ceil of coordinates for each value to be inserted
-    corner_coords = torch.empty(size=(data.shape[0], 2, 2), dtype=torch.long, device=image.device)
-    corner_coords[:, 0] = torch.floor(coordinates)
-    corner_coords[:, 1] = torch.ceil(coordinates)
+def _insert_linear_2d(
+    data,  # (b, c)
+    coordinates,  # (b, yx)
+    image,  # (c, h, w)
+    weights  # (h, w)
+):
+    # b is number of data points to insert per channel, c is number of channels
+    b, c = data.shape
 
-    # calculate linear interpolation weights for each data point being inserted
-    _weights = torch.empty(size=(data.shape[0], 2, 2), device=image.device)  # (b, 2, yx)
-    _weights[:, 1] = coordinates - corner_coords[:, 0]  # upper corner weights
-    _weights[:, 0] = 1 - _weights[:, 1]  # lower corner weights
+    # cache corner coordinates for each value to be inserted
+    #     C10---C11
+    #      |  P  |
+    #     C00---C01
+    coordinates = einops.rearrange(coordinates, 'b yx -> yx b')
+    y0, x0 = torch.floor(coordinates)
+    y1, x1 = torch.ceil(coordinates)
 
-    # define function for adding weighted data at nearest 4 pixels to each coordinate
-    # make sure to do atomic adds, don't just override existing data at each position
-    def add_data_at_corner(y: Literal[0, 1], x: Literal[0, 1]):
-        w = einops.reduce(_weights[:, [y, x], [0, 1]], 'b yx -> b', reduction='prod')
-        idx_y, idx_x = einops.rearrange(corner_coords[:, [y, x], [0, 1]], 'b yx -> yx b')
-        image.index_put_(indices=(idx_y, idx_x), values=w * data, accumulate=True)
-        weights.index_put_(indices=(idx_y, idx_x), values=w, accumulate=True)
+    # populate arrays of corner indices
+    idx_h = torch.empty(size=(b, 2, 2), dtype=torch.long, device=image.device)
+    idx_w = torch.empty(size=(b, 2, 2), dtype=torch.long, device=image.device)
 
-    # insert correctly weighted data at each of 4 nearest pixels then return
-    add_data_at_corner(0, 0)
-    add_data_at_corner(0, 1)
-    add_data_at_corner(1, 0)
-    add_data_at_corner(1, 1)
+    idx_h[:, 0, 0], idx_w[:, 0, 0] = y0, x0  # C00
+    idx_h[:, 0, 1], idx_w[:, 0, 1] = y0, x1  # C01
+    idx_h[:, 1, 0], idx_w[:, 1, 0] = y1, x0  # C10
+    idx_h[:, 1, 1], idx_w[:, 1, 1] = y1, x1  # C11
+
+    # calculate linear interpolation weights for each corner
+    y, x = coordinates
+    ty, tx = y - y0, x - x0  # fractional position between corners
+    w = torch.empty(size=(b, 2, 2), device=image.device)
+    w[:, 0, 0] = (1 - ty) * (1 - tx)   # C00
+    w[:, 0, 1] = (1 - ty) * tx         # C01
+    w[:, 1, 0] = ty * (1 - tx)         # C10
+    w[:, 1, 1] = ty * tx               # C11
+
+    # make sure indices broadcast correctly
+    idx_c = torch.arange(c, device=coordinates.device, dtype=torch.long)
+    idx_c = einops.rearrange(idx_c, 'c -> 1 c 1 1')
+    idx_h = einops.rearrange(idx_h, 'b h w -> b 1 h w')
+    idx_w = einops.rearrange(idx_w, 'b h w -> b 1 h w')
+
+    # insert weighted data and weight values at each corner across all channels
+    # make sure to do atomic adds
+    data = einops.rearrange(data, 'b c -> b c 1 1')
+    w = einops.rearrange(w, 'b h w -> b 1 h w')
+    image.index_put_(indices=(idx_c, idx_h, idx_w), values=w * data, accumulate=True)
+    weights.index_put_(indices=(idx_h, idx_w), values=w, accumulate=True)
+
     return image, weights
