@@ -162,8 +162,8 @@ def test_insert_multiple_values_into_multichannel_image_2d_nearest():
     [torch.float32, torch.float64, torch.complex64, torch.complex128]
 )
 def test_insert_into_image_2d_type_consistency(dtype):
-    image = torch.rand((28, 28, 28), dtype=dtype)
-    coords = torch.tensor(np.random.uniform(low=0, high=27, size=(3, 4, 5, 3)))
+    image = torch.rand((4, 4, 4), dtype=dtype)
+    coords = torch.tensor(np.random.uniform(low=0, high=3, size=(3, 4, 5, 3)))
     values = torch.rand(size=(3, 4, 5), dtype=dtype)
     # cast the dtype to corresponding float for weights
     weights = torch.zeros_like(image, dtype=torch.float64)
@@ -181,8 +181,8 @@ def test_insert_into_image_2d_type_consistency(dtype):
 
 
 def test_insert_into_image_3d_type_error():
-    image = torch.rand((28, 28, 28), dtype=torch.complex64)
-    coords = torch.tensor(np.random.uniform(low=0, high=27, size=(3, 4, 5, 3)))
+    image = torch.rand((4, 4, 4), dtype=torch.complex64)
+    coords = torch.tensor(np.random.uniform(low=0, high=3, size=(3, 4, 5, 3)))
     values = torch.rand(size=(3, 4, 5), dtype=torch.complex128)
     # cast the dtype to corresponding float for weights
     with pytest.raises(ValueError):
