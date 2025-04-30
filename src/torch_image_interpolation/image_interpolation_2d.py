@@ -143,6 +143,9 @@ def insert_into_image_2d(
         raise ValueError('One coordinate pair is required for each value in data.')
     if coordinates_ndim != 2:
         raise ValueError('Coordinates must be 2D with shape (..., 2).')
+    if image.dtype != values.dtype:
+        raise ValueError('Image and values must have the same dtype.')
+
     if weights is None:
         weights = torch.zeros(size=(h, w), dtype=torch.float32, device=image.device)
 
@@ -238,7 +241,7 @@ def _insert_linear_2d(
     # calculate linear interpolation weights for each corner
     y, x = coordinates
     ty, tx = y - y0, x - x0  # fractional position between corners
-    w = torch.empty(size=(b, 2, 2), device=image.device)
+    w = torch.empty(size=(b, 2, 2), device=image.device, dtype=weights.dtype)
     w[:, 0, 0] = (1 - ty) * (1 - tx)   # C00
     w[:, 0, 1] = (1 - ty) * tx         # C01
     w[:, 1, 0] = ty * (1 - tx)         # C10
@@ -254,7 +257,11 @@ def _insert_linear_2d(
     # make sure to do atomic adds
     data = einops.rearrange(data, 'b c -> b c 1 1')
     w = einops.rearrange(w, 'b h w -> b 1 h w')
-    image.index_put_(indices=(idx_c, idx_h, idx_w), values=w * data, accumulate=True)
+    image.index_put_(
+        indices=(idx_c, idx_h, idx_w),
+        values=data * w.to(data.dtype),
+        accumulate=True
+    )
     weights.index_put_(indices=(idx_h, idx_w), values=w, accumulate=True)
 
     return image, weights

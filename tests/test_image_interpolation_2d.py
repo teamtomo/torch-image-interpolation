@@ -1,6 +1,7 @@
 import einops
 import numpy as np
 import torch
+import pytest
 
 from torch_image_interpolation import sample_image_2d, insert_into_image_2d
 
@@ -153,3 +154,39 @@ def test_insert_into_image_nearest_interp_2d():
     expected = torch.zeros((28, 28)).float()
     expected[11, 14] = 5
     assert torch.allclose(image, expected)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.float64, torch.complex64, torch.complex128]
+)
+def test_insert_into_image_2d_type_consistency(dtype):
+    image = torch.rand((28, 28), dtype=dtype)
+    coords = torch.tensor(np.random.uniform(low=0, high=27, size=(3, 4, 2)))
+    values = torch.rand(size=(3, 4), dtype=dtype)
+    # cast the dtype to corresponding float for weights
+    weights = torch.zeros_like(image, dtype=torch.float64)
+
+    for mode in ['bilinear', 'nearest']:
+        image, weights = insert_into_image_2d(
+            values,
+            image=image,
+            weights=weights,
+            coordinates=coords,
+            interpolation=mode,
+        )
+        assert image.dtype == dtype
+        assert weights.dtype == torch.float64
+
+
+def test_insert_into_image_3d_type_error():
+    image = torch.rand((28, 28), dtype=torch.complex64)
+    coords = torch.tensor(np.random.uniform(low=0, high=27, size=(3, 4, 2)))
+    values = torch.rand(size=(3, 4), dtype=torch.complex128)
+    # cast the dtype to corresponding float for weights
+    with pytest.raises(ValueError):
+        insert_into_image_2d(
+            values,
+            image=image,
+            coordinates=coords,
+        )

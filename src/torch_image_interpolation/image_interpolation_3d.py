@@ -143,6 +143,9 @@ def insert_into_image_3d(
         raise ValueError('One coordinate triplet is required for each value in data.')
     if coordinates_ndim != 3:
         raise ValueError('Coordinates must be 3D with shape (..., 3).')
+    if image.dtype != values.dtype:
+        raise ValueError('Image and values must have the same dtype.')
+
     if weights is None:
         weights = torch.zeros(size=(d, h, w), dtype=torch.float32, device=image.device)
 
@@ -241,7 +244,7 @@ def _insert_linear_3d(
     # calculate trilinear interpolation weights for each corner
     z, y, x = coordinates
     tz, ty, tx = z - z0, y - y0, x - x0  # fractional position between voxel corners
-    w = torch.empty(size=(b, 2, 2, 2), device=image.device)
+    w = torch.empty(size=(b, 2, 2, 2), device=image.device, dtype=weights.dtype)
 
     w[:, 0, 0, 0] = (1 - tz) * (1 - ty) * (1 - tx)  # C000
     w[:, 0, 0, 1] = (1 - tz) * (1 - ty) * tx        # C001
@@ -262,7 +265,11 @@ def _insert_linear_3d(
     # insert weighted data and weight values at each corner
     data = einops.rearrange(data, 'b c -> b c 1 1 1')
     w = einops.rearrange(w, 'b z y x -> b 1 z y x')
-    image.index_put_(indices=(idx_c, idx_z, idx_y, idx_x), values=w * data, accumulate=True)
+    image.index_put_(
+        indices=(idx_c, idx_z, idx_y, idx_x),
+        values=data * w.to(data.dtype),
+        accumulate=True
+    )
     weights.index_put_(indices=(idx_z, idx_y, idx_x), values=w, accumulate=True)
 
     return image, weights
