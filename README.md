@@ -6,14 +6,14 @@
 [![CI](https://github.com/teamtomo/torch-image-interpolation/actions/workflows/ci.yml/badge.svg)](https://github.com/teamtomo/torch-image-interpolation/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/teamtomo/torch-image-interpolation/branch/main/graph/badge.svg)](https://codecov.io/gh/teamtomo/torch-image-interpolation)
 
-2D/3D image interpolation routines in PyTorch.
+1D/2D/3D image interpolation routines in PyTorch.
 
 ## Why?
 
 This package provides a simple, consistent API for
 
-- sampling values from 2D/3D images (`sample_image_2d()`/`sample_image_3d()`)
-- inserting values into 2D/3D images (`insert_into_image_2d()`/`insert_into_image_3d`)
+- sampling values from 1D/2D/3D images (`sample_image_1d()`/`sample_image_2d()`/`sample_image_3d()`)
+- inserting values into 2D/3D images (`insert_into_image_1d()`/`insert_into_image_2d()`/`insert_into_image_3d()`)
 
 Operations are differentiable, multichannel data and complex valued images are supported.
 
@@ -33,6 +33,13 @@ pip install torch-image-interpolation
 This library uses an array-like coordinate system where coordinate values span from `0`
 to `dim_size - 1` for each dimension.
 Fractional coordinates are supported and values are interpolated appropriately.
+
+### 1D Images
+
+For 1D images (vectors) with shape `(w, )` or `(c, w)` 
+coordinates are a `(...)` array of coordinates in the `w` dimension.
+
+For example, in a `(28, )` image, valid coordinates range from `0` to `27`.
 
 ### 2D Images
 
@@ -80,13 +87,11 @@ samples_nearest = sample_image_2d(image=image, coordinates=coords, interpolation
 samples_bicubic = sample_image_2d(image=image, coordinates=coords, interpolation='bicubic')
 ```
 
-The API is identical for 3D `(d, h, w)` images but takes `(..., 3)` arrays of
-coordinates.
+The API is identical for 1D (`w`) or 3D `(d, h, w)` images but takes `(...)` or `(..., 3)` arrays of
+coordinates respectively.
 
-Sampling is supported for multichannel images in both 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
-Sampling multichannel images returns `(..., c)` arrays of values. 
-
-
+Sampling is supported for multichannel images in 1D `(c, w)`, 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
+Sampling multichannel images returns `(..., c)` arrays of values.
 
 ## Insert into image
 
@@ -115,10 +120,10 @@ image_nearest, weights_nearest = insert_into_image_2d(
 )
 ```
 
-The API is identical for 3D `(d, h, w)` images but requires `(..., 3)` arrays of
-coordinates.
+The API is identical for 1D `(w, )` and 3D `(d, h, w)` images but requires `(...)` and (..., 3)` arrays of
+coordinates respectively.
 
-Insertion of is supported for multichannel images in both 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
+Insertion is supported for multichannel images in 1D `(w, )`, 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
 Inserting into multichannel images requires `(..., c)` arrays of values.
 
 
