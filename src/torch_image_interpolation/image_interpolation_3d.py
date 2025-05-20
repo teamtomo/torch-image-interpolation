@@ -18,7 +18,7 @@ def sample_image_3d(
     Parameters
     ----------
     image: torch.Tensor
-        `(d, h, w)` image or `(c, d, h, w)` multi-channel image.
+        `(d, h, w)` image or `(c, d, h, w)` multichannel image.
     coordinates: torch.Tensor
         `(..., 3)` array of coordinates at which `image` should be sampled.
         - Coordinates are ordered `zyx` and are positions in the `d`, `h` and `w` dimensions respectively.
