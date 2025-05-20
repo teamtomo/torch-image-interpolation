@@ -123,7 +123,7 @@ image_nearest, weights_nearest = insert_into_image_2d(
 The API is identical for 1D `(w, )` and 3D `(d, h, w)` images but requires `(...)` and (..., 3)` arrays of
 coordinates respectively.
 
-Insertion is supported for multichannel images in 1D `(w, )`, 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
+Insertion is supported for multichannel images in 1D `(c, w)`, 2D `(c, h, w)` and 3D `(c, d, h, w)`. 
 Inserting into multichannel images requires `(..., c)` arrays of values.
 
 
