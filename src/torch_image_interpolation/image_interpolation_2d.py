@@ -18,7 +18,7 @@ def sample_image_2d(
     Parameters
     ----------
     image: torch.Tensor
-        `(h, w)` image or `(c, h, w)` multi-channel image.
+        `(h, w)` image or `(c, h, w)` multichannel image.
     coordinates: torch.Tensor
         `(..., 2)` array of coordinates at which `image` should be sampled.
         - Coordinates are ordered `yx` and are positions in the `h` and `w` dimensions respectively.
