@@ -15,7 +15,8 @@ def test_sample_image_1d():
     coords = torch.tensor(np.random.randint(low=0, high=27, size=(*arbitrary_shape,)))
 
     # sample
-    samples = sample_image_1d(image=image, coordinates=coords)
+    for interpolation in ("nearest", "linear", "cubic"):
+        samples = sample_image_1d(image=image, coordinates=coords, interpolation=interpolation)
     assert samples.shape == (6, 7, 8)
 
 

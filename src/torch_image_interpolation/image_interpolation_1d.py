@@ -71,7 +71,12 @@ def sample_image_1d(
     # Take the samples
     # We need to convert the coordinates to grid_sample format
     coords_2d = array_to_grid_sample(coords_2d, array_shape=(2, w))
-    mode = 'bilinear' if interpolation == 'linear' else interpolation
+    if interpolation == 'linear':
+        mode = 'bilinear'
+    elif interpolation == 'cubic':
+        mode = 'bicubic'
+    else:
+        mode = interpolation
     samples = F.grid_sample(
         input=image,
         grid=coords_2d,
